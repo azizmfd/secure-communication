@@ -1,70 +1,59 @@
-# Communication Sécurisée Client-Serveur
+# Secure Client-Server Communication
 
-Projet éducatif : un client chiffre un message avec l'algorithme de son choix et
-l'envoie à un serveur (sockets Python, TCP) qui le déchiffre. Le trafic est ensuite
-intercepté avec Wireshark et analysé (cryptanalyse).
+An educational project implementing a secure communication system between a client and a server in Python, using TCP sockets. The client chooses an encryption algorithm, encrypts a message, and sends it to the server, which decrypts it. The project also includes a full cryptanalysis module: traffic interception and several attacks against each algorithm.
 
-> Projet pédagogique : les algorithmes écrits à la main ne doivent PAS être utilisés
-> en production. Utilisez des bibliothèques éprouvées et des protocoles standards (TLS).
+> **Educational project.** The hand-written algorithms here must NOT be used in production. Always use well-tested libraries and standard protocols (TLS, etc.).
 
-## Structure
-
-```
-secure-communication/
-├── algorithms/
-│   ├── classical/     caesar, substitution, vigenere, playfair, hill
-│   ├── symmetric/     aes (ECB, CBC, CTR)
-│   ├── asymmetric/    rsa (chiffrement + signatures), dh (Diffie-Hellman)
-│   └── hash/          sha256, hmac_sha256
-├── network/           server.py, client.py, interactive.py, client_lib.py, protocol.py, keygen.py
-├── tests/             tests unitaires, de protocole et réseau
-└── examples/
-```
+## Project structure
 
 ## Installation
 
-Python 3 et pycryptodome (utilisé uniquement pour AES) :
+Requires Python 3 and pycryptodome (used only for AES):
 
 ```bash
 sudo apt install python3-pycryptodome
-python3 network/keygen.py        # génère les clés RSA du serveur et du client (dossier keys/)
+python3 network/keygen.py        # generates the server's and client's RSA key pairs (keys/ folder)
 ```
 
-## Utilisation (deux terminaux sur la même machine)
+## Usage (two terminals on the same machine)
 
 ```bash
-# Terminal 1
+# Terminal 1: start the server
 python3 network/server.py --port 5000
 
-# Terminal 2 : menu interactif
+# Terminal 2: interactive menu
 python3 network/interactive.py
 
-# ou en ligne de commande
-python3 network/client.py --algorithm caesar --key 5 --message "Bonjour"
+# or from the command line
+python3 network/client.py --algorithm caesar --key 5 --message "Hello"
 python3 network/client.py --algorithm aes --mode CBC --bits 256
 python3 network/client.py --algorithm rsa --sign
 python3 network/client.py --algorithm dh --bits 256
-python3 network/client.py --algorithm vigenere --secret monsecret   # + --secret au serveur
+python3 network/client.py --algorithm vigenere --secret mysecret   # server must also use --secret
 ```
 
-## Algorithmes
+A guided demo script that walks through every algorithm is available:
+```bash
+bash examples/demo.sh
+```
 
-| Famille | Algorithmes | Remarques |
+## Algorithms implemented
+
+| Family | Algorithms | Notes |
 |---|---|---|
-| Classique | Caesar, Substitution, Vigenère, Playfair, Hill | écrits à la main |
-| Symétrique | AES-128 / AES-256, modes ECB, CBC, CTR | pycryptodome |
-| Asymétrique | RSA (chiffrement, signature), Diffie-Hellman | écrits à la main |
-| Hachage | SHA-256, HMAC-SHA256 | écrits à la main, comparés à hashlib |
+| Classical | Caesar, Substitution, Vigenère, Playfair, Hill | hand-written |
+| Symmetric | AES-128 / AES-256, modes ECB, CBC, CTR | pycryptodome |
+| Asymmetric | RSA (encryption, signature), Diffie-Hellman | hand-written |
+| Hashing | SHA-256, HMAC-SHA256 | hand-written, verified against `hashlib` |
 
-## Format des messages (JSON)
+## Message format (JSON)
 
 ```json
 {"algorithm": "aes", "key": "<hex>", "mode": "CBC", "iv": "<hex>",
- "ciphertext": "<hex>", "sha256": "<hash du clair>", "hmac": "...", "signature": "..."}
+ "ciphertext": "<hex>", "sha256": "<hash of the plaintext>", "hmac": "...", "signature": "..."}
 ```
 
-Avec Diffie-Hellman (`--algorithm dh`), le champ `key` disparaît : le client envoie
-`dh_public`, et la clé AES est calculée des deux côtés sans jamais circuler.
+With Diffie-Hellman (`--algorithm dh`), the `key` field disappears: the client sends `dh_public`, and the AES key is computed independently on both sides, never transmitted.
 
 ## Tests
 
@@ -72,10 +61,34 @@ Avec Diffie-Hellman (`--algorithm dh`), le champ `key` disparaît : le client en
 python3 -m unittest discover -s tests -t . -v
 ```
 
-## Limites connues (volontaires, étudiées en cryptanalyse)
+64 tests covering every algorithm, the protocol, and real client/server network exchanges.
 
-- Pour les algorithmes classiques et AES « simple », la clé est envoyée dans le JSON.
-- RSA « livre » sans padding : le même message donne toujours le même chiffré.
-- Diffie-Hellman n'est pas authentifié : vulnérable au man-in-the-middle.
-- Le SHA-256 du message en clair est envoyé tel quel : il permet de tester des devinettes.
-- Aucune protection contre le rejeu (replay) des messages.
+## Cryptanalysis (attacks/)
+
+Traffic is captured locally with `tcpdump` or `Wireshark` (`tcp.port == 5000` on the `lo` interface), then analyzed:
+
+| Script | Attack | Target |
+|---|---|---|
+| `brute_force.py` | Brute force (26 keys) | Caesar |
+| `frequency.py` | Letter frequency analysis | Caesar |
+| `substitution_attack.py` | Frequency analysis + hill-climbing | Substitution |
+| `vigenere_attack.py` | Index of coincidence + per-column frequency | Vigenère |
+| `hill_known_plaintext.py` | Known-plaintext attack | Hill |
+| `ecb_pattern.py` | Detection of repeated ciphertext blocks | AES-ECB |
+| `dictionary_attack.py` | Dictionary attack against a password-derived key | AES (weak key) |
+| `replay_attack.py` | Replays a captured message | Any algorithm |
+
+Example:
+```bash
+sudo tcpdump -i lo -A -s 0 'tcp port 5000' > capture.txt
+python3 network/client.py --algorithm caesar --key 7 --message "$(cat examples/message.txt)"
+python3 attacks/brute_force.py --capture capture.txt
+```
+
+## Known limitations (intentional, studied through cryptanalysis)
+
+- For classical algorithms and plain AES, the key is sent inside the JSON message.
+- RSA is "textbook" RSA (no padding): the same message always produces the same ciphertext.
+- Diffie-Hellman alone is not authenticated: vulnerable to man-in-the-middle attacks.
+- The SHA-256 hash of the plaintext is sent as-is: it can be used to test guesses.
+- No protection against message replay.
